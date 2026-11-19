@@ -1,0 +1,104 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stakeholder Engagement Framework</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 15px;
+      background: #f4f4f4;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    .toolbar {
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 10px 15px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    canvas {
+      max-width: 100%;
+      height: auto;
+      background: white;
+      box-shadow: 0 2px 8px #ccc;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="prev">Previous</button>
+    <span id="status">Loading PDF...</span>
+    <button id="next">Next</button>
+  </div>
+  <canvas id="pdf"></canvas>
+
+  <script type="module">
+    import * as pdfjsLib from
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+
+    const filename = "Strakeholder-Engagement-Framework-SEF.pdf";
+    const status = document.getElementById("status");
+    const canvas = document.getElementById("pdf");
+
+    try {
+      const pdf = await pdfjsLib.getDocument(filename).promise;
+      const params = new URLSearchParams(location.search);
+      let pageNumber = Number(params.get("page") || 84);
+      if (!Number.isFinite(pageNumber)) pageNumber = 84;
+      pageNumber = Math.min(
+        pdf.numPages,
+        Math.max(1, Math.floor(pageNumber))
+      );
+
+      let rendering = false;
+
+      async function render() {
+        if (rendering) return;
+        rendering = true;
+        try {
+          const page = await pdf.getPage(pageNumber);
+          const viewport = page.getViewport({ scale: 1.5 });
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({
+            canvasContext: canvas.getContext("2d"),
+            viewport
+          }).promise;
+
+          status.textContent =
+            `Page ${pageNumber} / ${pdf.numPages}`;
+          history.replaceState(null, "", "?page=" + pageNumber);
+        } finally {
+          rendering = false;
+        }
+      }
+
+      document.getElementById("prev").onclick = async () => {
+        if (!rendering && pageNumber > 1) {
+          pageNumber--;
+          await render();
+        }
+      };
+
+      document.getElementById("next").onclick = async () => {
+        if (!rendering && pageNumber < pdf.numPages) {
+          pageNumber++;
+          await render();
+        }
+      };
+
+      await render();
+    } catch (error) {
+      status.textContent = "Error loading PDF: " + error.message;
+    }
+  </script>
+</body>
+</html>
