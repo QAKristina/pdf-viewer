@@ -50,7 +50,7 @@
     const fileKey = params.get("file") || "sef";
     const filename = files[fileKey];
 
-    const defaultPage = fileKey === "tariffs" ? 2 : 84;
+    const defaultPage = fileKey === "con" ? 1 : 84;
     let pageNumber = Number(params.get("page") || defaultPage);
 
     const status = document.getElementById("status");
