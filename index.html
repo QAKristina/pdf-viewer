@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PDF Viewer</title>
+
   <style>
     body {
       margin: 0;
@@ -13,108 +14,201 @@
       font-family: Arial, sans-serif;
       text-align: center;
     }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+
     button {
       padding: 10px 15px;
-      margin: 5px;
       cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background: white;
     }
-    canvas {
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #status {
+      font-size: 14px;
+    }
+
+    #pdf {
+      display: block;
       max-width: 100%;
       height: auto;
+      margin: 0 auto;
       background: white;
       box-shadow: 0 2px 8px #ccc;
     }
+
+    #error {
+      color: #b00020;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 15px auto;
+      max-width: 700px;
+    }
   </style>
 </head>
+
 <body>
-  <div>
-    <button id="prev">Previous</button>
+  <div class="controls">
+    <button id="prev" disabled>Previous</button>
     <span id="status">Loading PDF...</span>
-    <button id="next">Next</button>
+    <button id="next" disabled>Next</button>
   </div>
+
+  <p id="error"></p>
   <canvas id="pdf"></canvas>
 
   <script type="module">
-    import * as pdfjsLib from
-      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs";
-
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+    const status = document.getElementById("status");
+    const errorBox = document.getElementById("error");
+    const canvas = document.getElementById("pdf");
+    const prevButton = document.getElementById("prev");
+    const nextButton = document.getElementById("next");
 
     const files = {
       sef: "Strakeholder-Engagement-Framework-SEF.pdf",
       con: "Metodologija-za-utvrdivanje-naknade-za-prikljucenje-na-distributivni-sistem-elektricne-energije.pdf"
     };
 
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(window.location.search);
     const fileKey = params.get("file") || "sef";
     const filename = files[fileKey];
 
     const defaultPage = fileKey === "con" ? 1 : 84;
-    let pageNumber = Number(params.get("page") || defaultPage);
+    const requestedPage = Number(params.get("page"));
 
-    const status = document.getElementById("status");
-    const canvas = document.getElementById("pdf");
+    let pageNumber =
+      Number.isInteger(requestedPage) && requestedPage > 0
+        ? requestedPage
+        : defaultPage;
 
-    if (!filename) {
-      status.textContent = "Unknown PDF file";
-    } else {
+    let pdf = null;
+    let rendering = false;
+
+    function updateButtons() {
+      prevButton.disabled = rendering || !pdf || pageNumber <= 1;
+      nextButton.disabled =
+        rendering || !pdf || pageNumber >= pdf.numPages;
+    }
+
+    async function renderPage() {
+      if (!pdf || rendering) return;
+
+      rendering = true;
+      updateButtons();
+      status.textContent = "Loading page...";
+
       try {
-        const pdf = await pdfjsLib.getDocument(filename).promise;
-        if (!Number.isFinite(pageNumber)) {
-          pageNumber = defaultPage;
-        }
-        pageNumber = Math.min(
-          pdf.numPages,
-          Math.max(1, Math.floor(pageNumber))
+        const page = await pdf.getPage(pageNumber);
+
+        const baseViewport = page.getViewport({ scale: 1 });
+        const availableWidth =
+          Math.max(280, document.documentElement.clientWidth - 30);
+
+        const scale = Math.min(
+          1.5,
+          availableWidth / baseViewport.width
         );
 
-        let rendering = false;
+        const viewport = page.getViewport({ scale });
 
-        async function render() {
-          if (rendering) return;
-          rendering = true;
-          try {
-            const page = await pdf.getPage(pageNumber);
-            const viewport = page.getViewport({ scale: 1.5 });
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            await page.render({
-              canvasContext: canvas.getContext("2d"),
-              viewport
-            }).promise;
+        const context = canvas.getContext("2d");
 
-            status.textContent =
-              `Page ${pageNumber} / ${pdf.numPages}`;
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
 
-            history.replaceState(
-              null, "",
-              "?file=" + fileKey + "&page=" + pageNumber
-            );
-          } finally {
-            rendering = false;
-          }
-        }
+        await page.render({
+          canvasContext: context,
+          viewport: viewport
+        }).promise;
 
-        document.getElementById("prev").onclick = async () => {
-          if (!rendering && pageNumber > 1) {
-            pageNumber--;
-            await render();
-          }
-        };
+        status.textContent =
+          `Page ${pageNumber} / ${pdf.numPages}`;
 
-        document.getElementById("next").onclick = async () => {
-          if (!rendering && pageNumber < pdf.numPages) {
-            pageNumber++;
-            await render();
-          }
-        };
+        const url = new URL(window.location.href);
+        url.searchParams.set("file", fileKey);
+        url.searchParams.set("page", pageNumber);
 
-        await render();
+        history.replaceState(null, "", url);
+
       } catch (error) {
-        status.textContent = "Error: " + error.message;
+        status.textContent = "Page error";
+        errorBox.textContent = error.message;
+      } finally {
+        rendering = false;
+        updateButtons();
       }
     }
+
+    prevButton.addEventListener("click", async () => {
+      if (rendering || pageNumber <= 1) return;
+      pageNumber--;
+      await renderPage();
+    });
+
+    nextButton.addEventListener("click", async () => {
+      if (rendering || !pdf || pageNumber >= pdf.numPages) return;
+      pageNumber++;
+      await renderPage();
+    });
+
+    async function init() {
+      try {
+        if (!filename) {
+          throw new Error("Unknown PDF file: " + fileKey);
+        }
+
+        const pdfjsLib = await import(
+          "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs"
+        );
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+
+        const pdfUrl = new URL(filename, window.location.href);
+
+        const response = await fetch(pdfUrl);
+
+        if (!response.ok) {
+          throw new Error(
+            `PDF not found (HTTP ${response.status}):\n${pdfUrl.href}`
+          );
+        }
+
+        const data = await response.arrayBuffer();
+
+        pdf = await pdfjsLib.getDocument({
+          data: new Uint8Array(data)
+        }).promise;
+
+        pageNumber = Math.min(
+          pdf.numPages,
+          Math.max(1, pageNumber)
+        );
+
+        await renderPage();
+
+      } catch (error) {
+        status.textContent = "Error loading PDF";
+        errorBox.textContent =
+          error.message || String(error);
+        console.error(error);
+      }
+    }
+
+    await init();
   </script>
 </body>
 </html>
