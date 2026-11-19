@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Stakeholder Engagement Framework</title>
+  <title>PDF Viewer</title>
   <style>
     body {
       margin: 0;
@@ -12,9 +12,6 @@
       background: #f4f4f4;
       font-family: Arial, sans-serif;
       text-align: center;
-    }
-    .toolbar {
-      margin-bottom: 15px;
     }
     button {
       padding: 10px 15px;
@@ -30,7 +27,7 @@
   </style>
 </head>
 <body>
-  <div class="toolbar">
+  <div>
     <button id="prev">Previous</button>
     <span id="status">Loading PDF...</span>
     <button id="next">Next</button>
@@ -44,60 +41,79 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
 
-    const filename = "Strakeholder-Engagement-Framework-SEF.pdf";
+    const files = {
+      sef: "Strakeholder-Engagement-Framework-SEF.pdf",
+      tariffs: "Metodologija-za-utvrdjivanje-regulatorno-dozvoljenog-prihoda-i-cijena-za-koriscenje-distributivnog-sistema-elektricne-energije(4).pdf"
+    };
+
+    const params = new URLSearchParams(location.search);
+    const fileKey = params.get("file") || "sef";
+    const filename = files[fileKey];
+
+    const defaultPage = fileKey === "tariffs" ? 2 : 84;
+    let pageNumber = Number(params.get("page") || defaultPage);
+
     const status = document.getElementById("status");
     const canvas = document.getElementById("pdf");
 
-    try {
-      const pdf = await pdfjsLib.getDocument(filename).promise;
-      const params = new URLSearchParams(location.search);
-      let pageNumber = Number(params.get("page") || 84);
-      if (!Number.isFinite(pageNumber)) pageNumber = 84;
-      pageNumber = Math.min(
-        pdf.numPages,
-        Math.max(1, Math.floor(pageNumber))
-      );
-
-      let rendering = false;
-
-      async function render() {
-        if (rendering) return;
-        rendering = true;
-        try {
-          const page = await pdf.getPage(pageNumber);
-          const viewport = page.getViewport({ scale: 1.5 });
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          await page.render({
-            canvasContext: canvas.getContext("2d"),
-            viewport
-          }).promise;
-
-          status.textContent =
-            `Page ${pageNumber} / ${pdf.numPages}`;
-          history.replaceState(null, "", "?page=" + pageNumber);
-        } finally {
-          rendering = false;
+    if (!filename) {
+      status.textContent = "Unknown PDF file";
+    } else {
+      try {
+        const pdf = await pdfjsLib.getDocument(filename).promise;
+        if (!Number.isFinite(pageNumber)) {
+          pageNumber = defaultPage;
         }
+        pageNumber = Math.min(
+          pdf.numPages,
+          Math.max(1, Math.floor(pageNumber))
+        );
+
+        let rendering = false;
+
+        async function render() {
+          if (rendering) return;
+          rendering = true;
+          try {
+            const page = await pdf.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 1.5 });
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({
+              canvasContext: canvas.getContext("2d"),
+              viewport
+            }).promise;
+
+            status.textContent =
+              `Page ${pageNumber} / ${pdf.numPages}`;
+
+            history.replaceState(
+              null, "",
+              "?file=" + fileKey + "&page=" + pageNumber
+            );
+          } finally {
+            rendering = false;
+          }
+        }
+
+        document.getElementById("prev").onclick = async () => {
+          if (!rendering && pageNumber > 1) {
+            pageNumber--;
+            await render();
+          }
+        };
+
+        document.getElementById("next").onclick = async () => {
+          if (!rendering && pageNumber < pdf.numPages) {
+            pageNumber++;
+            await render();
+          }
+        };
+
+        await render();
+      } catch (error) {
+        status.textContent = "Error: " + error.message;
       }
-
-      document.getElementById("prev").onclick = async () => {
-        if (!rendering && pageNumber > 1) {
-          pageNumber--;
-          await render();
-        }
-      };
-
-      document.getElementById("next").onclick = async () => {
-        if (!rendering && pageNumber < pdf.numPages) {
-          pageNumber++;
-          await render();
-        }
-      };
-
-      await render();
-    } catch (error) {
-      status.textContent = "Error loading PDF: " + error.message;
     }
   </script>
 </body>
